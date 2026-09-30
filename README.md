@@ -180,7 +180,7 @@ Este proyecto puede distribuirse bajo la licencia que determine el autor. Si se 
 ```bash
 git clone <URL_DEL_REPOSITORIO>
 cd monjson
-pip3 install -r requirements.txt
+pip3 install -r requirimientos.txt
 python3 main.py
 ```
 Después, abrir en tu navegador: `http://IP_DEL_SERVIDOR:8080/v1/dash`
