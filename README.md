@@ -166,7 +166,7 @@ Por este motivo, **no se recomienda exponer directamente el puerto 8080 a Intern
 
 ## 👤 Información del Proyecto
 
-* **Autor:** Tu nombre
+* **Autor:** Rubén C
 * **Fecha de creación:** 30 de septiembre de 2026
 
 ### 📄 Licencia
@@ -203,4 +203,4 @@ sudo nano/etc/systemd/system/monjson.service
 # Comando para ejecutar el script (usa la ruta absoluta de python3)
 ExecStart=/opt/monjson/venv/bin/python main.py
 ```
-Con este cambio debe funconar.
+Con este cambio debe funcionar.
