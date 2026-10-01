@@ -20,7 +20,7 @@ import psutil
 # ============================================================
 
 app = FastAPI(
-    title="PhotoStorage Metrics API - Configurable PoC Enterprise"
+    title="Servidor Metricas API - Configurable PoC MX"
 )
 
 
@@ -1979,7 +1979,7 @@ def dashboard():
 >
 
 <title>
-    PhotoStorage Server Dashboard
+    Server Server Dashboard
 </title>
 
 <script
@@ -2258,7 +2258,7 @@ tr:hover {
 <header>
 
 <h1>
-    🖥️ PhotoStorage Server Dashboard
+    🖥️ Server Server Dashboard
 </h1>
 
 <div id="estado">

@@ -7,7 +7,8 @@ Type=simple
 # Ruta al directorio donde está el script
 WorkingDirectory=/opt/monjson
 # Comando para ejecutar el script (usa la ruta absoluta de python3)
-ExecStart=/usr/bin/python3 main.py
+#ExecStart=/usr/bin/python3 main.py
+ExecStart=/opt/monjson/venv/bin/python main.py
 # Reinicia el servicio automáticamente si el script falla o se cierra
 Restart=on-failure
 # Opcional: define bajo qué usuario correrá el script (ej: tu usuario o root)

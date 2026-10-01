@@ -196,8 +196,8 @@ sudo systemctl status monjson.service
 El monitor quedará ejecutándose automáticamente como servicio de Linux.
 
 ### 3. Si tienen error de FastAPI
-Luego podria dar error al ejecutar luego de la instalación de los reuerimientos.
-Para eso solo seria cambiar un punto en el servicve y ejecutarlo desde el env..
+Luego podria dar error al ejecutar luego de la instalación de los requerimientos.txt.
+Para eso solo seria cambiar un punto en el servicio y ejecutarlo desde el env..
 ```bash
 sudo nano/etc/systemd/system/monjson.service 
 # Comando para ejecutar el script (usa la ruta absoluta de python3)
