@@ -65,8 +65,6 @@ def crear_logger():
 
     logger.setLevel(logging.INFO)
 
-    # Evitar agregar handlers múltiples si el módulo
-    # es cargado más de una vez.
     if logger.handlers:
         return logger
 
@@ -84,19 +82,14 @@ def crear_logger():
             encoding="utf-8"
         )
 
-        # El timestamp real está dentro del JSON.
-        # El formatter solamente escribe el mensaje.
         handler.setFormatter(
-            logging.Formatter(
-                "%(message)s"
-            )
+            logging.Formatter("%(message)s")
         )
 
         logger.addHandler(handler)
 
     except Exception as error:
 
-        # Si no puede crear el log, no detener la API.
         console_handler = logging.StreamHandler()
 
         console_handler.setFormatter(
@@ -105,9 +98,7 @@ def crear_logger():
             )
         )
 
-        logger.addHandler(
-            console_handler
-        )
+        logger.addHandler(console_handler)
 
         logger.error(
             "No se pudo abrir %s: %s",
@@ -129,34 +120,51 @@ def cargar_configuracion():
 
     config = configparser.ConfigParser()
 
-
     if not os.path.exists(CONFIG_FILE):
 
         return {
-
             "refresco": 30,
-
             "usuarios_ocultos": [
                 "root",
                 "mngsrv"
             ],
-
             "procesos": [
                 "apache2",
                 "nginx",
                 "sshd",
                 "python3"
             ],
-
             "secciones": {},
-
-            "subsecciones": {}
-
+            "subsecciones": {},
         }
 
+    try:
 
-    config.read(CONFIG_FILE)
+        config.read(CONFIG_FILE)
 
+    except Exception as error:
+
+        logger.error(
+            "Error leyendo %s: %s",
+            CONFIG_FILE,
+            error
+        )
+
+        return {
+            "refresco": 30,
+            "usuarios_ocultos": [
+                "root",
+                "mngsrv"
+            ],
+            "procesos": [
+                "apache2",
+                "nginx",
+                "sshd",
+                "python3"
+            ],
+            "secciones": {},
+            "subsecciones": {},
+        }
 
     # --------------------------------------------------------
     # GLOBAL
@@ -168,40 +176,29 @@ def cargar_configuracion():
         fallback=30
     )
 
-
     if refresco < 1:
+
         refresco = 30
 
-
     u_ocultos = [
-
         u.strip()
-
         for u in config.get(
             "GLOBAL",
             "USUARIOS_OCULTOS",
             fallback="root,mngsrv"
         ).split(",")
-
         if u.strip()
-
     ]
 
-
     p_monitoreados = [
-
         p.strip()
-
         for p in config.get(
             "GLOBAL",
             "PROCESOS_MONITOREADOS",
-            fallback=""
+            fallback="apache2,nginx,sshd,python3"
         ).split(",")
-
         if p.strip()
-
     ]
-
 
     # --------------------------------------------------------
     # VISIBILIDAD
@@ -214,20 +211,16 @@ def cargar_configuracion():
     ):
 
         secciones = {
-
             opcion:
                 config.getboolean(
                     "VISIBILIDAD_SECCIONES",
                     opcion,
                     fallback=True
                 )
-
             for opcion in config.options(
                 "VISIBILIDAD_SECCIONES"
             )
-
         }
-
 
     subsecciones = {}
 
@@ -236,38 +229,23 @@ def cargar_configuracion():
     ):
 
         subsecciones = {
-
             opcion:
                 config.getboolean(
                     "VISIBILIDAD_SUBSECCIONES",
                     opcion,
                     fallback=True
                 )
-
             for opcion in config.options(
                 "VISIBILIDAD_SUBSECCIONES"
             )
-
         }
 
-
     return {
-
-        "refresco":
-            refresco,
-
-        "usuarios_ocultos":
-            u_ocultos,
-
-        "procesos":
-            p_monitoreados,
-
-        "secciones":
-            secciones,
-
-        "subsecciones":
-            subsecciones
-
+        "refresco": refresco,
+        "usuarios_ocultos": u_ocultos,
+        "procesos": p_monitoreados,
+        "secciones": secciones,
+        "subsecciones": subsecciones,
     }
 
 
@@ -279,7 +257,6 @@ def obtener_detales_servidor():
 
     hostname = socket.gethostname()
 
-
     try:
 
         fqdn = socket.getfqdn()
@@ -287,7 +264,6 @@ def obtener_detales_servidor():
     except Exception:
 
         fqdn = hostname
-
 
     try:
 
@@ -307,30 +283,27 @@ def obtener_detales_servidor():
             f"{platform.release()}"
         )
 
-
     uptime_segundos = (
         time.time()
         -
         psutil.boot_time()
     )
 
-
     dias = int(
         uptime_segundos // 86400
     )
 
-
     horas = int(
-        (uptime_segundos % 86400)
-        // 3600
+        (
+            uptime_segundos % 86400
+        ) // 3600
     )
-
 
     minutos = int(
-        (uptime_segundos % 3600)
-        // 60
+        (
+            uptime_segundos % 3600
+        ) // 60
     )
-
 
     return {
 
@@ -367,7 +340,315 @@ def obtener_detales_servidor():
                 time.gmtime(
                     psutil.boot_time()
                 )
+            ),
+
+    }
+
+
+# ============================================================
+# OBTENER STORAGE / PUNTOS DE MONTAJE
+# ============================================================
+
+def obtener_storage():
+
+    montajes = []
+
+    # Filesystems virtuales que no queremos mostrar
+    # como almacenamiento real.
+    filesystems_excluidos = {
+
+        "proc",
+        "sysfs",
+        "devtmpfs",
+        "devpts",
+        "tmpfs",
+        "cgroup",
+        "cgroup2",
+        "overlay",
+        "squashfs",
+        "pstore",
+        "debugfs",
+        "tracefs",
+        "securityfs",
+        "configfs",
+        "fusectl",
+        "efivarfs",
+        "hugetlbfs",
+        "mqueue",
+        "autofs",
+        "binfmt_misc",
+    }
+
+    try:
+
+        particiones = psutil.disk_partitions(
+            all=False
+        )
+
+    except Exception as error:
+
+        logger.error(
+            "No se pudieron obtener los puntos de montaje: %s",
+            error
+        )
+
+        particiones = []
+
+    for particion in particiones:
+
+        try:
+
+            punto_montaje = (
+                particion.mountpoint
             )
+
+            dispositivo = (
+                particion.device
+            )
+
+            filesystem = (
+                particion.fstype
+            )
+
+            # ------------------------------------------------
+            # Evitar pseudo-filesystems
+            # ------------------------------------------------
+
+            if (
+                filesystem
+                and
+                filesystem.lower()
+                in filesystems_excluidos
+            ):
+
+                continue
+
+            # ------------------------------------------------
+            # Obtener utilización
+            # ------------------------------------------------
+
+            uso = psutil.disk_usage(
+                punto_montaje
+            )
+
+            montaje = {
+
+                "mountpoint":
+                    punto_montaje,
+
+                "device":
+                    dispositivo
+                    if dispositivo
+                    else "Desconocido",
+
+                "filesystem":
+                    filesystem
+                    if filesystem
+                    else "Desconocido",
+
+                "total_gb":
+                    round(
+                        uso.total
+                        /
+                        (1024 ** 3),
+                        2
+                    ),
+
+                "used_gb":
+                    round(
+                        uso.used
+                        /
+                        (1024 ** 3),
+                        2
+                    ),
+
+                "available_gb":
+                    round(
+                        uso.free
+                        /
+                        (1024 ** 3),
+                        2
+                    ),
+
+                "percentage_used":
+                    uso.percent,
+
+            }
+
+            montajes.append(
+                montaje
+            )
+
+        except (
+            PermissionError,
+            FileNotFoundError,
+            OSError,
+            ValueError
+        ):
+
+            # Un montaje problemático no debe impedir
+            # que se devuelva el resto del JSON.
+            continue
+
+        except Exception as error:
+
+            logger.warning(
+                "Error procesando montaje: %s",
+                error
+            )
+
+            continue
+
+    # ========================================================
+    # ASEGURAR QUE / EXISTA
+    # ========================================================
+
+    root_encontrado = False
+
+    for montaje in montajes:
+
+        if montaje["mountpoint"] == "/":
+
+            root_encontrado = True
+
+            break
+
+    if not root_encontrado:
+
+        try:
+
+            uso_root = psutil.disk_usage("/")
+
+            montajes.insert(
+                0,
+                {
+
+                    "mountpoint": "/",
+
+                    "device": "Desconocido",
+
+                    "filesystem": "Desconocido",
+
+                    "total_gb":
+                        round(
+                            uso_root.total
+                            /
+                            (1024 ** 3),
+                            2
+                        ),
+
+                    "used_gb":
+                        round(
+                            uso_root.used
+                            /
+                            (1024 ** 3),
+                            2
+                        ),
+
+                    "available_gb":
+                        round(
+                            uso_root.free
+                            /
+                            (1024 ** 3),
+                            2
+                        ),
+
+                    "percentage_used":
+                        uso_root.percent,
+
+                }
+            )
+
+        except Exception:
+
+            pass
+
+    # ========================================================
+    # ORDENAR
+    # ========================================================
+
+    montajes.sort(
+        key=lambda x: (
+            0
+            if x["mountpoint"] == "/"
+            else 1,
+            x["mountpoint"]
+        )
+    )
+
+    # ========================================================
+    # STORAGE PRINCIPAL
+    # ========================================================
+
+    storage_root = None
+
+    for montaje in montajes:
+
+        if montaje["mountpoint"] == "/":
+
+            storage_root = montaje
+
+            break
+
+    if storage_root is None:
+
+        storage_root = {
+
+            "mountpoint": "/",
+
+            "device": "Desconocido",
+
+            "filesystem": "Desconocido",
+
+            "total_gb": 0,
+
+            "used_gb": 0,
+
+            "available_gb": 0,
+
+            "percentage_used": 0,
+
+        }
+
+    return {
+
+        "mountpoint":
+            storage_root[
+                "mountpoint"
+            ],
+
+        "device":
+            storage_root[
+                "device"
+            ],
+
+        "filesystem":
+            storage_root[
+                "filesystem"
+            ],
+
+        "total_gb":
+            storage_root[
+                "total_gb"
+            ],
+
+        "used_gb":
+            storage_root[
+                "used_gb"
+            ],
+
+        "available_gb":
+            storage_root[
+                "available_gb"
+            ],
+
+        "percentage_used":
+            storage_root[
+                "percentage_used"
+            ],
+
+        "mounts":
+            montajes,
 
     }
 
@@ -379,7 +660,6 @@ def obtener_detales_servidor():
 def obtener_intentos_fallidos():
 
     intentos = []
-
 
     # --------------------------------------------------------
     # journalctl
@@ -400,25 +680,23 @@ def obtener_intentos_fallidos():
             stderr=subprocess.DEVNULL
         )
 
-
         for linea in resultado.splitlines():
 
             if (
-                "Failed password" not in linea
+                "Failed password"
+                not in linea
                 and
                 "authentication failure"
                 not in linea
             ):
+
                 continue
 
-
             partes = linea.split()
-
 
             usuario = "desconocido"
 
             ip = "desconocida"
-
 
             # ------------------------------------------------
             # Usuario
@@ -429,7 +707,6 @@ def obtener_intentos_fallidos():
                 indice = partes.index(
                     "for"
                 )
-
 
                 if (
                     indice + 1
@@ -451,20 +728,23 @@ def obtener_intentos_fallidos():
                             len(partes)
                         ):
 
-                            usuario = partes[
-                                indice + 2
-                            ]
+                            usuario = (
+                                partes[
+                                    indice + 2
+                                ]
+                            )
 
                     else:
 
-                        usuario = partes[
-                            indice + 1
-                        ]
+                        usuario = (
+                            partes[
+                                indice + 1
+                            ]
+                        )
 
             except ValueError:
 
                 pass
-
 
             # ------------------------------------------------
             # IP
@@ -476,58 +756,51 @@ def obtener_intentos_fallidos():
                     "from"
                 )
 
-
                 if (
                     indice + 1
                     <
                     len(partes)
                 ):
 
-                    ip = partes[
-                        indice + 1
-                    ]
+                    ip = (
+                        partes[
+                            indice + 1
+                        ]
+                    )
 
             except ValueError:
 
                 pass
-
 
             # ------------------------------------------------
             # Hora
             # ------------------------------------------------
 
             hora = (
-
                 linea[:19]
-
                 if len(linea) >= 19
-
                 else "--"
-
             )
 
+            intentos.append(
+                {
+                    "usuario":
+                        usuario,
 
-            intentos.append({
+                    "ip_origen":
+                        ip,
 
-                "usuario":
-                    usuario,
+                    "hora":
+                        hora,
 
-                "ip_origen":
-                    ip,
-
-                "hora":
-                    hora,
-
-                "servicio":
-                    "SSH"
-
-            })
-
+                    "servicio":
+                        "SSH",
+                }
+            )
 
     except Exception:
 
         pass
-
 
     # --------------------------------------------------------
     # Fallback auth.log
@@ -544,46 +817,40 @@ def obtener_intentos_fallidos():
                 text=True
             )
 
-
             ahora = time.localtime()
-
 
             mes_actual = time.strftime(
                 "%b",
                 ahora
             )
 
-
             dia_actual = str(
                 ahora.tm_mday
             )
 
-
             for linea in resultado.splitlines():
 
                 if (
-                    mes_actual not in linea
+                    mes_actual
+                    not in linea
                     or
                     f" {dia_actual} "
                     not in linea
                 ):
+
                     continue
 
-
                 partes = linea.split()
-
 
                 usuario = "desconocido"
 
                 ip = "desconocida"
-
 
                 try:
 
                     indice = partes.index(
                         "for"
                     )
-
 
                     if (
                         indice + 1
@@ -599,15 +866,25 @@ def obtener_intentos_fallidos():
                             "invalid"
                         ):
 
-                            usuario = partes[
+                            if (
                                 indice + 2
-                            ]
+                                <
+                                len(partes)
+                            ):
+
+                                usuario = (
+                                    partes[
+                                        indice + 2
+                                    ]
+                                )
 
                         else:
 
-                            usuario = partes[
-                                indice + 1
-                            ]
+                            usuario = (
+                                partes[
+                                    indice + 1
+                                ]
+                            )
 
                 except (
                     ValueError,
@@ -615,7 +892,6 @@ def obtener_intentos_fallidos():
                 ):
 
                     pass
-
 
                 try:
 
@@ -623,16 +899,17 @@ def obtener_intentos_fallidos():
                         "from"
                     )
 
-
                     if (
                         indice + 1
                         <
                         len(partes)
                     ):
 
-                        ip = partes[
-                            indice + 1
-                        ]
+                        ip = (
+                            partes[
+                                indice + 1
+                            ]
+                        )
 
                 except (
                     ValueError,
@@ -641,30 +918,27 @@ def obtener_intentos_fallidos():
 
                     pass
 
+                intentos.append(
+                    {
+                        "usuario":
+                            usuario,
 
-                intentos.append({
+                        "ip_origen":
+                            ip,
 
-                    "usuario":
-                        usuario,
+                        "hora":
+                            " ".join(
+                                partes[:3]
+                            ),
 
-                    "ip_origen":
-                        ip,
-
-                    "hora":
-                        " ".join(
-                            partes[:3]
-                        ),
-
-                    "servicio":
-                        "SSH"
-
-                })
-
+                        "servicio":
+                            "SSH",
+                    }
+                )
 
         except Exception:
 
             pass
-
 
     return intentos
 
@@ -679,9 +953,7 @@ def obtener_usuarios_linux(
 
     usuarios_hoy = []
 
-
     usuarios_activos = {}
-
 
     # --------------------------------------------------------
     # who
@@ -694,30 +966,23 @@ def obtener_usuarios_linux(
             text=True
         )
 
-
         for linea in resultado_who.splitlines():
 
             partes = linea.split()
-
 
             if len(partes) < 2:
 
                 continue
 
-
             usuario = partes[0]
-
 
             if usuario in usuarios_ocultos:
 
                 continue
 
-
             terminal = partes[1]
 
-
             origen = "local"
-
 
             for parte in partes[2:]:
 
@@ -741,16 +1006,16 @@ def obtener_usuarios_linux(
 
                     break
 
-
             usuarios_activos[
-                (usuario, terminal)
+                (
+                    usuario,
+                    terminal
+                )
             ] = origen
-
 
     except Exception:
 
         pass
-
 
     # --------------------------------------------------------
     # Logins SSH de hoy
@@ -775,16 +1040,13 @@ def obtener_usuarios_linux(
 
         resultado = ""
 
-
     for linea in resultado.splitlines():
 
         if "Accepted" not in linea:
 
             continue
 
-
         partes = linea.split()
-
 
         usuario = "desconocido"
 
@@ -793,7 +1055,6 @@ def obtener_usuarios_linux(
         metodo = "SSH"
 
         terminal = "-"
-
 
         # ----------------------------------------------------
         # Usuario
@@ -805,26 +1066,25 @@ def obtener_usuarios_linux(
                 "for"
             )
 
-
             if (
                 indice + 1
                 <
                 len(partes)
             ):
 
-                usuario = partes[
-                    indice + 1
-                ]
+                usuario = (
+                    partes[
+                        indice + 1
+                    ]
+                )
 
         except ValueError:
 
             pass
 
-
         if usuario in usuarios_ocultos:
 
             continue
-
 
         # ----------------------------------------------------
         # IP
@@ -836,21 +1096,21 @@ def obtener_usuarios_linux(
                 "from"
             )
 
-
             if (
                 indice + 1
                 <
                 len(partes)
             ):
 
-                ip = partes[
-                    indice + 1
-                ]
+                ip = (
+                    partes[
+                        indice + 1
+                    ]
+                )
 
         except ValueError:
 
             pass
-
 
         # ----------------------------------------------------
         # Método
@@ -858,50 +1118,49 @@ def obtener_usuarios_linux(
 
         if "publickey" in linea:
 
-            metodo = "SSH / Public Key"
+            metodo = (
+                "SSH / Public Key"
+            )
 
         elif "password" in linea:
 
-            metodo = "SSH / Password"
-
+            metodo = (
+                "SSH / Password"
+            )
 
         # ----------------------------------------------------
         # Hora
         # ----------------------------------------------------
 
         hora = (
-
             linea[:19]
-
             if len(linea) >= 19
-
             else "--"
-
         )
 
+        usuarios_hoy.append(
+            {
 
-        usuarios_hoy.append({
+                "usuario":
+                    usuario,
 
-            "usuario":
-                usuario,
+                "terminal":
+                    terminal,
 
-            "terminal":
-                terminal,
+                "host_origen":
+                    ip,
 
-            "host_origen":
-                ip,
+                "hora_inicio":
+                    hora,
 
-            "hora_inicio":
-                hora,
+                "metodo":
+                    metodo,
 
-            "metodo":
-                metodo,
+                "activo":
+                    False,
 
-            "activo":
-                False
-
-        })
-
+            }
+        )
 
     # --------------------------------------------------------
     # Usuarios locales activos
@@ -914,13 +1173,10 @@ def obtener_usuarios_linux(
 
         encontrado = False
 
-
         for usuario_data in usuarios_hoy:
 
             if (
-                usuario_data[
-                    "usuario"
-                ]
+                usuario_data["usuario"]
                 ==
                 usuario
                 and
@@ -939,41 +1195,39 @@ def obtener_usuarios_linux(
                     "activo"
                 ] = True
 
-
                 usuario_data[
                     "terminal"
                 ] = terminal
-
 
                 encontrado = True
 
                 break
 
-
         if not encontrado:
 
-            usuarios_hoy.append({
+            usuarios_hoy.append(
+                {
 
-                "usuario":
-                    usuario,
+                    "usuario":
+                        usuario,
 
-                "terminal":
-                    terminal,
+                    "terminal":
+                        terminal,
 
-                "host_origen":
-                    origen,
+                    "host_origen":
+                        origen,
 
-                "hora_inicio":
-                    "Sesión local",
+                    "hora_inicio":
+                        "Sesión local",
 
-                "metodo":
-                    "Local",
+                    "metodo":
+                        "Local",
 
-                "activo":
-                    True
+                    "activo":
+                        True,
 
-            })
-
+                }
+            )
 
     return usuarios_hoy
 
@@ -986,16 +1240,15 @@ def obtener_metricas_sistema(
     cfg
 ):
 
-    disco = psutil.disk_usage("/")
+    # ========================================================
+    # STORAGE
+    # ========================================================
 
-    ram = psutil.virtual_memory()
+    storage = obtener_storage()
 
-    swap = psutil.swap_memory()
-
-
-    # --------------------------------------------------------
-    # Red / Disk I/O
-    # --------------------------------------------------------
+    # ========================================================
+    # RED / DISK I/O
+    # ========================================================
 
     net_io_1 = (
         psutil.net_io_counters()
@@ -1005,9 +1258,7 @@ def obtener_metricas_sistema(
         psutil.disk_io_counters()
     )
 
-
     time.sleep(1)
-
 
     net_io_2 = (
         psutil.net_io_counters()
@@ -1017,9 +1268,7 @@ def obtener_metricas_sistema(
         psutil.disk_io_counters()
     )
 
-
     mb_recibidos_sec = round(
-
         (
             net_io_2.bytes_recv
             -
@@ -1027,14 +1276,10 @@ def obtener_metricas_sistema(
         )
         /
         (1024 * 1024),
-
         2
-
     )
 
-
     mb_enviados_sec = round(
-
         (
             net_io_2.bytes_sent
             -
@@ -1042,14 +1287,10 @@ def obtener_metricas_sistema(
         )
         /
         (1024 * 1024),
-
         2
-
     )
 
-
     kb_leidos_sec = round(
-
         (
             disk_io_2.read_bytes
             -
@@ -1057,14 +1298,10 @@ def obtener_metricas_sistema(
         )
         /
         1024,
-
         2
-
     )
 
-
     kb_escritos_sec = round(
-
         (
             disk_io_2.write_bytes
             -
@@ -1072,15 +1309,12 @@ def obtener_metricas_sistema(
         )
         /
         1024,
-
         2
-
     )
 
-
-    # --------------------------------------------------------
-    # Conexiones
-    # --------------------------------------------------------
+    # ========================================================
+    # CONEXIONES
+    # ========================================================
 
     try:
 
@@ -1088,32 +1322,23 @@ def obtener_metricas_sistema(
             psutil.net_connections()
         )
 
+        con_establecidas = len(
+            [
+                c
+                for c in conexiones
+                if c.status
+                == "ESTABLISHED"
+            ]
+        )
 
-        con_establecidas = len([
-
-            c
-
-            for c in conexiones
-
-            if c.status
-            ==
-            "ESTABLISHED"
-
-        ])
-
-
-        con_escucha = len([
-
-            c
-
-            for c in conexiones
-
-            if c.status
-            ==
-            "LISTEN"
-
-        ])
-
+        con_escucha = len(
+            [
+                c
+                for c in conexiones
+                if c.status
+                == "LISTEN"
+            ]
+        )
 
     except Exception:
 
@@ -1121,23 +1346,19 @@ def obtener_metricas_sistema(
 
         con_escucha = 0
 
-
-    # --------------------------------------------------------
+    # ========================================================
     # JSON
-    # --------------------------------------------------------
+    # ========================================================
 
     json_salida = {}
 
+    visibles = (
+        cfg["secciones"]
+    )
 
-    visibles = cfg[
-        "secciones"
-    ]
-
-
-    sub_visibles = cfg[
-        "subsecciones"
-    ]
-
+    sub_visibles = (
+        cfg["subsecciones"]
+    )
 
     # ========================================================
     # SERVER INFO
@@ -1152,7 +1373,6 @@ def obtener_metricas_sistema(
             "server_info"
         ] = obtener_detales_servidor()
 
-
     # ========================================================
     # STORAGE
     # ========================================================
@@ -1166,32 +1386,40 @@ def obtener_metricas_sistema(
             "storage"
         ] = {
 
+            "mountpoint":
+                storage[
+                    "mountpoint"
+                ],
+
+            "device":
+                storage[
+                    "device"
+                ],
+
+            "filesystem":
+                storage[
+                    "filesystem"
+                ],
+
             "total_gb":
-                round(
-                    disco.total
-                    /
-                    (1024 ** 3),
-                    2
-                ),
+                storage[
+                    "total_gb"
+                ],
 
             "used_gb":
-                round(
-                    disco.used
-                    /
-                    (1024 ** 3),
-                    2
-                ),
+                storage[
+                    "used_gb"
+                ],
 
             "available_gb":
-                round(
-                    disco.free
-                    /
-                    (1024 ** 3),
-                    2
-                ),
+                storage[
+                    "available_gb"
+                ],
 
             "percentage_used":
-                disco.percent,
+                storage[
+                    "percentage_used"
+                ],
 
             "performance": {
 
@@ -1199,12 +1427,28 @@ def obtener_metricas_sistema(
                     kb_leidos_sec,
 
                 "write_speed_kb_sec":
-                    kb_escritos_sec
+                    kb_escritos_sec,
 
-            }
+            },
 
         }
 
+        # ----------------------------------------------------
+        # PUNTOS DE MONTAJE
+        # ----------------------------------------------------
+
+        if sub_visibles.get(
+            "storage_mounts",
+            True
+        ):
+
+            json_salida[
+                "storage"
+            ][
+                "mounts"
+            ] = storage[
+                "mounts"
+            ]
 
     # ========================================================
     # CPU
@@ -1225,10 +1469,9 @@ def obtener_metricas_sistema(
                 ),
 
             "load_average":
-                psutil.getloadavg()
+                psutil.getloadavg(),
 
         }
-
 
     # ========================================================
     # RAM
@@ -1239,6 +1482,10 @@ def obtener_metricas_sistema(
         True
     ):
 
+        ram = (
+            psutil.virtual_memory()
+        )
+
         json_salida[
             "ram"
         ] = {
@@ -1247,7 +1494,7 @@ def obtener_metricas_sistema(
                 round(
                     ram.total
                     /
-                    (1024 ** 2),
+                    (1024**2),
                     2
                 ),
 
@@ -1255,7 +1502,7 @@ def obtener_metricas_sistema(
                 round(
                     ram.used
                     /
-                    (1024 ** 2),
+                    (1024**2),
                     2
                 ),
 
@@ -1263,15 +1510,14 @@ def obtener_metricas_sistema(
                 round(
                     ram.available
                     /
-                    (1024 ** 2),
+                    (1024**2),
                     2
                 ),
 
             "percentage_used":
-                ram.percent
+                ram.percent,
 
         }
-
 
     # ========================================================
     # SWAP
@@ -1282,6 +1528,10 @@ def obtener_metricas_sistema(
         True
     ):
 
+        swap = (
+            psutil.swap_memory()
+        )
+
         json_salida[
             "swap"
         ] = {
@@ -1290,7 +1540,7 @@ def obtener_metricas_sistema(
                 round(
                     swap.total
                     /
-                    (1024 ** 2),
+                    (1024**2),
                     2
                 ),
 
@@ -1298,7 +1548,7 @@ def obtener_metricas_sistema(
                 round(
                     swap.used
                     /
-                    (1024 ** 2),
+                    (1024**2),
                     2
                 ),
 
@@ -1306,15 +1556,14 @@ def obtener_metricas_sistema(
                 round(
                     swap.free
                     /
-                    (1024 ** 2),
+                    (1024**2),
                     2
                 ),
 
             "percentage_used":
-                swap.percent
+                swap.percent,
 
         }
-
 
     # ========================================================
     # NETWORK
@@ -1347,12 +1596,11 @@ def obtener_metricas_sistema(
                     con_establecidas,
 
                 "listening":
-                    con_escucha
+                    con_escucha,
 
-            }
+            },
 
         }
-
 
     # ========================================================
     # SECURITY
@@ -1367,19 +1615,19 @@ def obtener_metricas_sistema(
             obtener_intentos_fallidos()
         )
 
-
         json_salida[
             "security_metrics"
         ] = {
 
             "failed_login_attempts_total":
-                len(intentos_fallidos),
+                len(
+                    intentos_fallidos
+                ),
 
             "failed_login_attempts_today":
-                intentos_fallidos
+                intentos_fallidos,
 
         }
-
 
     # ========================================================
     # USERS
@@ -1398,39 +1646,35 @@ def obtener_metricas_sistema(
             )
         )
 
-
         sesiones_activas = [
-
             usuario
-
-            for usuario
-            in usuarios_hoy
-
+            for usuario in usuarios_hoy
             if usuario.get(
                 "activo"
             ) is True
-
         ]
-
 
         json_salida[
             "users_online"
         ] = {
 
             "total_sessions":
-                len(sesiones_activas),
+                len(
+                    sesiones_activas
+                ),
 
             "users_today_total":
-                len(usuarios_hoy),
+                len(
+                    usuarios_hoy
+                ),
 
             "users_today":
                 usuarios_hoy,
 
             "active_users":
-                sesiones_activas
+                sesiones_activas,
 
         }
-
 
     # ========================================================
     # PROCESSES
@@ -1445,16 +1689,13 @@ def obtener_metricas_sistema(
 
         todos_los_procesos = []
 
-
         for proc in psutil.process_iter(
-
             [
                 "pid",
                 "name",
                 "cpu_percent",
                 "memory_info"
             ]
-
         ):
 
             try:
@@ -1479,28 +1720,26 @@ def obtener_metricas_sistema(
 
                     "ram_mb":
                         round(
-
                             proc.info[
                                 "memory_info"
                             ].rss
                             /
-                            (1024 * 1024),
-
+                            (
+                                1024 *
+                                1024
+                            ),
                             2
-
                         )
                         if proc.info[
                             "memory_info"
                         ]
-                        else 0.0
+                        else 0.0,
 
                 }
-
 
                 todos_los_procesos.append(
                     p_info
                 )
-
 
                 if (
                     p_info["name"]
@@ -1511,7 +1750,6 @@ def obtener_metricas_sistema(
                         p_info
                     )
 
-
             except (
                 psutil.NoSuchProcess,
                 psutil.AccessDenied
@@ -1519,11 +1757,9 @@ def obtener_metricas_sistema(
 
                 pass
 
-
         json_salida[
             "processes"
         ] = {}
-
 
         if sub_visibles.get(
             "monitored_services",
@@ -1538,7 +1774,6 @@ def obtener_metricas_sistema(
                 procesos_especificos
             )
 
-
         if sub_visibles.get(
             "top_3_consumers",
             True
@@ -1549,18 +1784,11 @@ def obtener_metricas_sistema(
             ][
                 "top_3_consumers"
             ] = sorted(
-
                 todos_los_procesos,
-
                 key=lambda x:
-                    x[
-                        "cpu_percentage"
-                    ],
-
+                    x["cpu_percentage"],
                 reverse=True
-
             )[:3]
-
 
     return json_salida
 
@@ -1575,10 +1803,10 @@ def guardar_json_log(
 
     try:
 
-        registro = dict(datos)
+        registro = dict(
+            datos
+        )
 
-
-        # Timestamp específico del registro.
         registro[
             "timestamp_log"
         ] = time.strftime(
@@ -1586,8 +1814,6 @@ def guardar_json_log(
             time.localtime()
         )
 
-
-        # JSON compacto: una medición = una línea.
         linea_json = json.dumps(
             registro,
             ensure_ascii=False,
@@ -1597,19 +1823,16 @@ def guardar_json_log(
             )
         )
 
-
         logger.info(
             linea_json
         )
 
-
     except Exception as error:
 
-        # Nunca permitir que un error de logging
-        # detenga la API.
         logger.error(
             json.dumps(
                 {
+
                     "timestamp_log":
                         time.strftime(
                             "%Y-%m-%d %H:%M:%S"
@@ -1620,7 +1843,8 @@ def guardar_json_log(
                         "la métrica en el log",
 
                     "detalle":
-                        str(error)
+                        str(error),
+
                 },
                 ensure_ascii=False
             )
@@ -1638,28 +1862,23 @@ def obtener_estado():
 
     global ultima_actualizacion
 
-
     tiempo_actual = time.time()
 
+    cfg = (
+        cargar_configuracion()
+    )
 
-    cfg = cargar_configuracion()
-
-
-    refresco_limite = cfg[
-        "refresco"
-    ]
-
+    refresco_limite = (
+        cfg["refresco"]
+    )
 
     # ========================================================
     # CACHE EXPIRADA
     # ========================================================
 
     if (
-
         not cache_datos
-
         or
-
         (
             tiempo_actual
             -
@@ -1667,13 +1886,7 @@ def obtener_estado():
         )
         >=
         refresco_limite
-
     ):
-
-
-        # ----------------------------------------------------
-        # Calcular nuevas métricas
-        # ----------------------------------------------------
 
         nuevas_metricas = (
             obtener_metricas_sistema(
@@ -1681,29 +1894,17 @@ def obtener_estado():
             )
         )
 
-
-        # ----------------------------------------------------
-        # Guardar en cache
-        # ----------------------------------------------------
-
         cache_datos = (
             nuevas_metricas
         )
-
 
         ultima_actualizacion = (
             tiempo_actual
         )
 
-
-        # ----------------------------------------------------
-        # Registrar JSON histórico
-        # ----------------------------------------------------
-
         guardar_json_log(
             nuevas_metricas
         )
-
 
     # ========================================================
     # DATOS DESDE CACHE
@@ -1715,26 +1916,18 @@ def obtener_estado():
         ultima_actualizacion
     )
 
-
     segundos_restantes = max(
-
         0,
-
         round(
-
             refresco_limite
             -
             tiempo_desde_actualizacion
-
         )
-
     )
-
 
     respuesta = dict(
         cache_datos
     )
-
 
     if (
         tiempo_desde_actualizacion
@@ -1757,7 +1950,6 @@ def obtener_estado():
             f"(Próximo refresco en "
             f"{segundos_restantes}s)"
         )
-
 
     return respuesta
 
@@ -1980,6 +2172,7 @@ th {
     color: #94a3b8;
 
     padding: 10px;
+
 }
 
 td {
@@ -1988,6 +2181,7 @@ td {
 
     border-top:
         1px solid #334155;
+
 }
 
 tr:hover {
@@ -2020,14 +2214,37 @@ tr:hover {
     font-size: 12px;
 }
 
+.storage-mount {
+
+    color: #38bdf8;
+
+    font-weight: bold;
+}
+
+.storage-device {
+
+    color: #cbd5e1;
+
+}
+
+.storage-usage {
+
+    font-weight: bold;
+
+}
+
 @media(max-width:700px) {
 
     main {
+
         padding: 10px;
+
     }
 
     .grid {
+
         grid-template-columns: 1fr;
+
     }
 
 }
@@ -2068,6 +2285,7 @@ tr:hover {
 <div class="card">
 
 <div class="metric">
+
 <span class="metric-name">
 Hostname
 </span>
@@ -2078,9 +2296,11 @@ Hostname
 >
 --
 </span>
+
 </div>
 
 <div class="metric">
+
 <span class="metric-name">
 FQDN
 </span>
@@ -2091,9 +2311,11 @@ FQDN
 >
 --
 </span>
+
 </div>
 
 <div class="metric">
+
 <span class="metric-name">
 Sistema operativo
 </span>
@@ -2104,9 +2326,11 @@ Sistema operativo
 >
 --
 </span>
+
 </div>
 
 <div class="metric">
+
 <span class="metric-name">
 Kernel
 </span>
@@ -2117,9 +2341,11 @@ Kernel
 >
 --
 </span>
+
 </div>
 
 <div class="metric">
+
 <span class="metric-name">
 Arquitectura
 </span>
@@ -2130,9 +2356,11 @@ Arquitectura
 >
 --
 </span>
+
 </div>
 
 <div class="metric">
+
 <span class="metric-name">
 Python
 </span>
@@ -2143,9 +2371,11 @@ Python
 >
 --
 </span>
+
 </div>
 
 <div class="metric">
+
 <span class="metric-name">
 Uptime
 </span>
@@ -2156,9 +2386,11 @@ Uptime
 >
 --
 </span>
+
 </div>
 
 <div class="metric">
+
 <span class="metric-name">
 Boot
 </span>
@@ -2169,6 +2401,7 @@ Boot
 >
 --
 </span>
+
 </div>
 
 </div>
@@ -2273,15 +2506,62 @@ Disponible
 </div>
 
 
+<!-- STORAGE -->
+
 <div class="card">
 
-<h2>💾 Storage</h2>
+<h2>💾 Storage /</h2>
 
 <div
     class="big-value"
     id="diskValor"
 >
 -- %
+</div>
+
+<div class="metric">
+
+<span class="metric-name">
+Punto de montaje
+</span>
+
+<span
+    class="metric-value"
+    id="diskMountpoint"
+>
+--
+</span>
+
+</div>
+
+<div class="metric">
+
+<span class="metric-name">
+Dispositivo
+</span>
+
+<span
+    class="metric-value"
+    id="diskDevice"
+>
+--
+</span>
+
+</div>
+
+<div class="metric">
+
+<span class="metric-name">
+Filesystem
+</span>
+
+<span
+    class="metric-value"
+    id="diskFilesystem"
+>
+--
+</span>
+
 </div>
 
 <div class="metric">
@@ -2393,6 +2673,60 @@ Libre
 </div>
 
 
+<!-- PUNTOS DE MONTAJE -->
+
+<div class="section-title">
+    💽 Puntos de montaje
+</div>
+
+<div class="grid">
+
+<div class="card">
+
+<h2>
+    Almacenamientos detectados
+</h2>
+
+<div style="overflow-x:auto;">
+
+<table>
+
+<thead>
+
+<tr>
+
+<th>Montaje</th>
+
+<th>Dispositivo</th>
+
+<th>Filesystem</th>
+
+<th>Total</th>
+
+<th>Usado</th>
+
+<th>Disponible</th>
+
+<th>Uso</th>
+
+</tr>
+
+</thead>
+
+<tbody
+    id="storageMountsTable"
+>
+</tbody>
+
+</table>
+
+</div>
+
+</div>
+
+</div>
+
+
 <!-- GRÁFICAS -->
 
 <div class="section-title">
@@ -2455,7 +2789,7 @@ Libre
 
 <div class="card">
 
-<h2>Storage</h2>
+<h2>Storage /</h2>
 
 <div class="chart-container">
 
@@ -2475,7 +2809,6 @@ Libre
 </div>
 
 <div class="grid">
-
 
 <div class="card">
 
@@ -2972,7 +3305,7 @@ const networkChart = crearChart(
         {
 
             label:
-                "Download KB/s",
+                "Download MB/s",
 
             data:
                 downloadData,
@@ -2987,7 +3320,7 @@ const networkChart = crearChart(
         {
 
             label:
-                "Upload KB/s",
+                "Upload MB/s",
 
             data:
                 uploadData,
@@ -3001,7 +3334,7 @@ const networkChart = crearChart(
 
     ],
 
-    "KB/s"
+    "MB/s"
 
 );
 
@@ -3114,7 +3447,6 @@ function valor(
     const elemento =
         document.getElementById(id);
 
-
     if (elemento) {
 
         elemento.textContent =
@@ -3129,7 +3461,9 @@ function valor(
 // BYTES
 // ============================================================
 
-function formatoBytes(bytes) {
+function formatoBytes(
+    bytes
+) {
 
     if (
         bytes === null ||
@@ -3139,7 +3473,6 @@ function formatoBytes(bytes) {
         return "--";
 
     }
-
 
     if (bytes < 1024) {
 
@@ -3151,26 +3484,20 @@ function formatoBytes(bytes) {
 
     }
 
-
     if (
         bytes <
         1024 * 1024
     ) {
 
         return (
-
             (
                 bytes / 1024
             ).toFixed(2)
-
             +
-
             " KB"
-
         );
 
     }
-
 
     if (
         bytes <
@@ -3180,23 +3507,20 @@ function formatoBytes(bytes) {
     ) {
 
         return (
-
             (
                 bytes /
-                (1024 * 1024)
+                (
+                    1024 *
+                    1024
+                )
             ).toFixed(2)
-
             +
-
             " MB"
-
         );
 
     }
 
-
     return (
-
         (
             bytes /
             (
@@ -3205,12 +3529,179 @@ function formatoBytes(bytes) {
                 1024
             )
         ).toFixed(2)
-
         +
-
         " GB"
-
     );
+
+}
+
+
+// ============================================================
+// STORAGE / PUNTOS DE MONTAJE
+// ============================================================
+
+function actualizarStorageMontajes(
+    datos
+) {
+
+    const tabla =
+        document.getElementById(
+            "storageMountsTable"
+        );
+
+    if (!tabla) {
+
+        return;
+
+    }
+
+    tabla.innerHTML = "";
+
+    const montajes =
+        datos.storage?.mounts || [];
+
+    montajes.forEach(
+        montaje => {
+
+            const fila =
+                document.createElement(
+                    "tr"
+                );
+
+            const porcentaje =
+                Number(
+                    montaje.percentage_used
+                    ?? 0
+                );
+
+            let colorUso =
+                "#22c55e";
+
+            if (
+                porcentaje >= 90
+            ) {
+
+                colorUso =
+                    "#ef4444";
+
+            }
+            else if (
+                porcentaje >= 75
+            ) {
+
+                colorUso =
+                    "#f59e0b";
+
+            }
+
+            fila.innerHTML = `
+
+                <td>
+
+                    <span
+                        class="storage-mount"
+                    >
+
+                        ${montaje.mountpoint ?? "--"}
+
+                    </span>
+
+                </td>
+
+                <td>
+
+                    <span
+                        class="storage-device"
+                    >
+
+                        ${montaje.device ?? "--"}
+
+                    </span>
+
+                </td>
+
+                <td>
+
+                    ${montaje.filesystem ?? "--"}
+
+                </td>
+
+                <td>
+
+                    ${montaje.total_gb ?? 0}
+                    GB
+
+                </td>
+
+                <td>
+
+                    ${montaje.used_gb ?? 0}
+                    GB
+
+                </td>
+
+                <td>
+
+                    ${montaje.available_gb ?? 0}
+                    GB
+
+                </td>
+
+                <td>
+
+                    <span
+                        class="storage-usage"
+                        style="
+                            color:${colorUso};
+                        "
+                    >
+
+                        ${porcentaje.toFixed(1)}%
+
+                    </span>
+
+                </td>
+
+            `;
+
+            tabla.appendChild(
+                fila
+            );
+
+        }
+    );
+
+    if (
+        montajes.length === 0
+    ) {
+
+        const fila =
+            document.createElement(
+                "tr"
+            );
+
+        fila.innerHTML = `
+
+            <td
+                colspan="7"
+                style="
+                    text-align:center;
+                    color:#94a3b8;
+                "
+            >
+
+                No se encontraron
+                puntos de montaje.
+
+            </td>
+
+        `;
+
+        tabla.appendChild(
+            fila
+        );
+
+    }
 
 }
 
@@ -3228,20 +3719,16 @@ function actualizarUsuarios(
             "usersTable"
         );
 
-
     tabla.innerHTML = "";
-
 
     const usuarios =
         datos.users_online
         ?.users_today || [];
 
-
     valor(
         "usersTodayTotal",
         usuarios.length
     );
-
 
     usuarios.forEach(
         usuario => {
@@ -3250,7 +3737,6 @@ function actualizarUsuarios(
                 document.createElement(
                     "tr"
                 );
-
 
             const estado =
                 usuario.activo
@@ -3263,37 +3749,49 @@ function actualizarUsuarios(
 
                 '<span style="color:#94a3b8">○ Cerrado</span>';
 
-
             fila.innerHTML = `
 
                 <td>
+
                     <strong>
+
                         ${usuario.usuario ?? "--"}
+
                     </strong>
+
                 </td>
 
                 <td>
+
                     ${usuario.hora_inicio ?? "--"}
+
                 </td>
 
                 <td>
+
                     ${usuario.terminal ?? "--"}
+
                 </td>
 
                 <td>
+
                     ${usuario.host_origen ?? "--"}
+
                 </td>
 
                 <td>
+
                     ${usuario.metodo ?? "--"}
+
                 </td>
 
                 <td>
+
                     ${estado}
+
                 </td>
 
             `;
-
 
             tabla.appendChild(
                 fila
@@ -3318,21 +3816,17 @@ function actualizarIntentosFallidos(
             "failedLoginsTable"
         );
 
-
     tabla.innerHTML = "";
-
 
     const intentos =
         datos.security_metrics
         ?.failed_login_attempts_today
         || [];
 
-
     valor(
         "failedLogins",
         intentos.length
     );
-
 
     intentos.forEach(
         intento => {
@@ -3342,29 +3836,37 @@ function actualizarIntentosFallidos(
                     "tr"
                 );
 
-
             fila.innerHTML = `
 
                 <td>
+
                     ${intento.hora ?? "--"}
+
                 </td>
 
                 <td>
+
                     <strong>
+
                         ${intento.usuario ?? "--"}
+
                     </strong>
+
                 </td>
 
                 <td>
+
                     ${intento.ip_origen ?? "--"}
+
                 </td>
 
                 <td>
+
                     ${intento.servicio ?? "--"}
+
                 </td>
 
             `;
-
 
             tabla.appendChild(
                 fila
@@ -3389,26 +3891,21 @@ function actualizarProcesos(
             "servicesTable"
         );
 
-
     const topTable =
         document.getElementById(
             "topProcessesTable"
         );
 
-
     servicesTable.innerHTML =
         "";
 
-
     topTable.innerHTML =
         "";
-
 
     const servicios =
         datos.processes
         ?.monitored_services
         || [];
-
 
     servicios.forEach(
         proc => {
@@ -3418,33 +3915,39 @@ function actualizarProcesos(
                     "tr"
                 );
 
-
             fila.innerHTML = `
 
                 <td>
+
                     ${proc.pid ?? "--"}
+
                 </td>
 
                 <td>
+
                     ${proc.name ?? "--"}
+
                 </td>
 
                 <td>
+
                     ${Number(
                         proc.cpu_percentage
                         ?? 0
                     ).toFixed(2)}
+
                 </td>
 
                 <td>
+
                     ${Number(
                         proc.ram_mb
                         ?? 0
                     ).toFixed(2)}
+
                 </td>
 
             `;
-
 
             servicesTable.appendChild(
                 fila
@@ -3453,12 +3956,10 @@ function actualizarProcesos(
         }
     );
 
-
     const top =
         datos.processes
         ?.top_3_consumers
         || [];
-
 
     top.forEach(
         proc => {
@@ -3468,33 +3969,39 @@ function actualizarProcesos(
                     "tr"
                 );
 
-
             fila.innerHTML = `
 
                 <td>
+
                     ${proc.pid ?? "--"}
+
                 </td>
 
                 <td>
+
                     ${proc.name ?? "--"}
+
                 </td>
 
                 <td>
+
                     ${Number(
                         proc.cpu_percentage
                         ?? 0
                     ).toFixed(2)}
+
                 </td>
 
                 <td>
+
                     ${Number(
                         proc.ram_mb
                         ?? 0
                     ).toFixed(2)}
+
                 </td>
 
             `;
-
 
             topTable.appendChild(
                 fila
@@ -3518,10 +4025,10 @@ async function actualizarDashboard() {
             await fetch(
                 "/v1/status",
                 {
-                    cache: "no-store"
+                    cache:
+                        "no-store"
                 }
             );
-
 
         if (!respuesta.ok) {
 
@@ -3533,15 +4040,12 @@ async function actualizarDashboard() {
 
         }
 
-
         const datos =
             await respuesta.json();
-
 
         const ahora =
             new Date()
             .toLocaleTimeString();
-
 
         // ----------------------------------------------------
         // SERVER
@@ -3549,7 +4053,6 @@ async function actualizarDashboard() {
 
         const server =
             datos.server_info;
-
 
         if (server) {
 
@@ -3595,7 +4098,6 @@ async function actualizarDashboard() {
 
         }
 
-
         // ----------------------------------------------------
         // CPU
         // ----------------------------------------------------
@@ -3605,21 +4107,17 @@ async function actualizarDashboard() {
             ?.usage_percentage
             ?? 0;
 
-
         valor(
             "cpuValor",
             Number(cpu).toFixed(1)
             + " %"
         );
 
-
         const load =
             datos.cpu
             ?.load_average;
 
-
         valor(
-
             "loadAverage",
 
             load
@@ -3637,9 +4135,7 @@ async function actualizarDashboard() {
                 :
 
                 "--"
-
         );
-
 
         // ----------------------------------------------------
         // RAM
@@ -3647,7 +4143,6 @@ async function actualizarDashboard() {
 
         const ram =
             datos.ram;
-
 
         if (ram) {
 
@@ -3659,20 +4154,17 @@ async function actualizarDashboard() {
                 + " %"
             );
 
-
             valor(
                 "ramTotal",
                 ram.total_mb
                 + " MB"
             );
 
-
             valor(
                 "ramUsed",
                 ram.used_mb
                 + " MB"
             );
-
 
             valor(
                 "ramAvailable",
@@ -3682,7 +4174,6 @@ async function actualizarDashboard() {
 
         }
 
-
         // ----------------------------------------------------
         // STORAGE
         // ----------------------------------------------------
@@ -3690,14 +4181,13 @@ async function actualizarDashboard() {
         const storage =
             datos.storage;
 
-
         if (storage) {
 
             const porcentaje =
                 Number(
                     storage.percentage_used
+                    ?? 0
                 );
-
 
             valor(
                 "diskValor",
@@ -3705,6 +4195,20 @@ async function actualizarDashboard() {
                 + " %"
             );
 
+            valor(
+                "diskMountpoint",
+                storage.mountpoint
+            );
+
+            valor(
+                "diskDevice",
+                storage.device
+            );
+
+            valor(
+                "diskFilesystem",
+                storage.filesystem
+            );
 
             valor(
                 "diskTotal",
@@ -3712,20 +4216,17 @@ async function actualizarDashboard() {
                 + " GB"
             );
 
-
             valor(
                 "diskUsed",
                 storage.used_gb
                 + " GB"
             );
 
-
             valor(
                 "diskAvailable",
                 storage.available_gb
                 + " GB"
             );
-
 
             storageChart
                 .data
@@ -3734,12 +4235,22 @@ async function actualizarDashboard() {
 
                     porcentaje,
 
-                    100 - porcentaje
+                    Math.max(
+                        0,
+                        100 - porcentaje
+                    )
 
                 ];
 
         }
 
+        // ----------------------------------------------------
+        // PUNTOS DE MONTAJE
+        // ----------------------------------------------------
+
+        actualizarStorageMontajes(
+            datos
+        );
 
         // ----------------------------------------------------
         // SWAP
@@ -3747,7 +4258,6 @@ async function actualizarDashboard() {
 
         const swap =
             datos.swap;
-
 
         if (swap) {
 
@@ -3759,20 +4269,17 @@ async function actualizarDashboard() {
                 + " %"
             );
 
-
             valor(
                 "swapTotal",
                 swap.total_mb
                 + " MB"
             );
 
-
             valor(
                 "swapUsed",
                 swap.used_mb
                 + " MB"
             );
-
 
             valor(
                 "swapFree",
@@ -3782,14 +4289,12 @@ async function actualizarDashboard() {
 
         }
 
-
         // ----------------------------------------------------
         // NETWORK
         // ----------------------------------------------------
 
         const network =
             datos.network;
-
 
         if (network) {
 
@@ -3800,14 +4305,12 @@ async function actualizarDashboard() {
                 + " MB/s"
             );
 
-
             valor(
                 "upload",
                 network
                     .speed_upload_mb_sec
                 + " MB/s"
             );
-
 
             valor(
                 "bytesReceived",
@@ -3817,7 +4320,6 @@ async function actualizarDashboard() {
                 )
             );
 
-
             valor(
                 "bytesSent",
                 formatoBytes(
@@ -3826,11 +4328,9 @@ async function actualizarDashboard() {
                 )
             );
 
-
             const conexiones =
                 network
                     .active_connections;
-
 
             if (conexiones) {
 
@@ -3839,12 +4339,10 @@ async function actualizarDashboard() {
                     conexiones.established
                 );
 
-
                 valor(
                     "established2",
                     conexiones.established
                 );
-
 
                 valor(
                     "listening",
@@ -3855,7 +4353,6 @@ async function actualizarDashboard() {
 
         }
 
-
         // ----------------------------------------------------
         // GRÁFICAS
         // ----------------------------------------------------
@@ -3864,11 +4361,9 @@ async function actualizarDashboard() {
             ahora
         );
 
-
         cpuData.push(
             cpu
         );
-
 
         ramData.push(
             datos.ram
@@ -3876,20 +4371,17 @@ async function actualizarDashboard() {
                 ?? 0
         );
 
-
         downloadData.push(
             datos.network
                 ?.speed_download_mb_sec
                 ?? 0
         );
 
-
         uploadData.push(
             datos.network
                 ?.speed_upload_mb_sec
                 ?? 0
         );
-
 
         readData.push(
             datos.storage
@@ -3898,7 +4390,6 @@ async function actualizarDashboard() {
                 ?? 0
         );
 
-
         writeData.push(
             datos.storage
                 ?.performance
@@ -3906,21 +4397,33 @@ async function actualizarDashboard() {
                 ?? 0
         );
 
+        limitarDatos(
+            labels
+        );
 
-        limitarDatos(labels);
+        limitarDatos(
+            cpuData
+        );
 
-        limitarDatos(cpuData);
+        limitarDatos(
+            ramData
+        );
 
-        limitarDatos(ramData);
+        limitarDatos(
+            downloadData
+        );
 
-        limitarDatos(downloadData);
+        limitarDatos(
+            uploadData
+        );
 
-        limitarDatos(uploadData);
+        limitarDatos(
+            readData
+        );
 
-        limitarDatos(readData);
-
-        limitarDatos(writeData);
-
+        limitarDatos(
+            writeData
+        );
 
         cpuChart.update();
 
@@ -3932,7 +4435,6 @@ async function actualizarDashboard() {
 
         storageChart.update();
 
-
         // ----------------------------------------------------
         // USUARIOS
         // ----------------------------------------------------
@@ -3940,7 +4442,6 @@ async function actualizarDashboard() {
         actualizarUsuarios(
             datos
         );
-
 
         // ----------------------------------------------------
         // SEGURIDAD
@@ -3950,7 +4451,6 @@ async function actualizarDashboard() {
             datos
         );
 
-
         // ----------------------------------------------------
         // PROCESOS
         // ----------------------------------------------------
@@ -3958,7 +4458,6 @@ async function actualizarDashboard() {
         actualizarProcesos(
             datos
         );
-
 
         // ----------------------------------------------------
         // ESTADO
@@ -3969,7 +4468,9 @@ async function actualizarDashboard() {
         ).innerHTML = `
 
             <span class="status-badge">
+
                 ● EN LÍNEA
+
             </span>
 
             Última actualización:
@@ -3981,14 +4482,13 @@ async function actualizarDashboard() {
 
         `;
 
-
-    } catch (error) {
+    }
+    catch (error) {
 
         console.error(
             "Error obteniendo métricas:",
             error
         );
-
 
         document.getElementById(
             "estado"
@@ -4001,7 +4501,9 @@ async function actualizarDashboard() {
                     color:#fecaca;
                 "
             >
+
                 ● SIN CONEXIÓN
+
             </span>
 
             Error consultando
@@ -4046,17 +4548,10 @@ if __name__ == "__main__":
 
     import uvicorn
 
-
     uvicorn.run(
-
         "main:app",
-
         host="0.0.0.0",
-
         port=8080,
-
         log_level="info",
-
         reload=False
-
     )
